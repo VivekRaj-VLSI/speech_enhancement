@@ -45,6 +45,7 @@ fprintf('Speech duration: %.2f s\n', duration);
 %% 2. Generate reproducible noise and a noise-only prefix
 rng(1, 'twister');
 
+inputSNRdB = 5;
 inputSNRdB = 0;
 noiseOnlyDuration = 0.5;           % seconds
 noiseSamples = round(noiseOnlyDuration * Fs);
@@ -53,6 +54,7 @@ speechPower = mean(speech.^2);
 targetNoisePower = speechPower / (10^(inputSNRdB / 10));
 
 % Select 'white' or 'pink-like' noise.
+noiseType = 'white';
 noiseType = 'pink-like';
 
 totalNoiseSamples = N + noiseSamples;

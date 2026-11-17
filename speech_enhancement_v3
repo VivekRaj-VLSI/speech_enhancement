@@ -1,0 +1,231 @@
+% Spectral subtraction vs. Wiener filtering on a user-selected speech file
+clc; clear; close all;
+
+% ---- settings
+snrIn     = 5;          % dB, measured over the speech part only
+noiseType = 'white';    % 'white' or 'pink'
+leadSec   = 0.5;        % noise-only lead-in
+frameMs   = 32;
+ssAlpha   = 2.0;        % over-subtraction
+ssBeta    = 0.02;       % spectral floor
+wfAlpha   = 0.98;       % decision-directed smoothing
+xiMin     = 10^(-25/10);
+
+% ---- load audio
+[fn, fp] = uigetfile({'*.wav;*.flac;*.mp3;*.m4a', 'Audio files'}, 'Select a speech file');
+if isequal(fn, 0), error('No file selected.'); end
+[x, fs] = audioread(fullfile(fp, fn));
+x = mean(x, 2);
+x = x - mean(x);
+pk = max(abs(x));
+if pk < eps, error('Selected file is silent.'); end
+x = x / pk;
+
+nLead = round(leadSec * fs);
+clean = [zeros(nLead, 1); x];
+L     = numel(clean);
+sp    = nLead+1 : L;                        % indices of the speech part
+
+% ---- add noise
+rng(1);
+switch noiseType
+    case 'white'
+        d = randn(L, 1);
+    case 'pink'
+        d = filter(1, [1 -0.98], randn(L+2000, 1));
+        d = d(2001:end);                    % drop filter transient
+    otherwise
+        error('Unknown noiseType.');
+end
+d = d - mean(d);
+d = d * sqrt(sum(x.^2) / (sum(d(sp).^2) * 10^(snrIn/10)));
+noisy = clean + d;
+
+% ---- STFT (sqrt-Hann, 50 % overlap, signal padded by N on both ends)
+N = 2^nextpow2(round(frameMs*1e-3*fs));
+H = N/2;
+w = sqrt(0.5*(1 - cos(2*pi*(0:N-1)'/N)));
+padN = @(s) [zeros(N,1); s(:); zeros(N,1)];
+
+[Y, nF] = getSTFT(padN(noisy), N, H, w);
+C = getSTFT(padN(clean), N, H, w);
+Py = abs(Y).^2;
+ph = angle(Y);
+
+fAx = (0:N/2)' * fs / N;
+tAx = ((0:nF-1)*H + N/2 - N) / fs;
+
+% ---- noise PSD from frames lying fully inside the lead-in
+st = (0:nF-1) * H;
+nz = find(st >= N & st + N <= N + nLead);
+if numel(nz) < 3, error('Lead-in too short for noise estimation.'); end
+Pn = mean(Py(:, nz), 2);
+
+% ---- spectral subtraction (power domain, noisy phase)
+Pss  = max(Py - ssAlpha*Pn, ssBeta*Pn);
+Gss  = sqrt(Pss ./ (Py + eps));
+Sss  = sqrt(Pss) .* exp(1j*ph);
+
+% ---- Wiener filter, decision-directed a-priori SNR
+gam  = Py ./ (Pn + eps);
+Gwf  = zeros(size(Y));
+Gp   = ones(N/2+1, 1);
+gp   = gam(:, 1);
+for l = 1:nF
+    xi = wfAlpha*(Gp.^2).*gp + (1-wfAlpha)*max(gam(:,l) - 1, 0);
+    xi = max(xi, xiMin);
+    G  = xi ./ (1 + xi);
+    Gwf(:, l) = G;
+    Gp = G;  gp = gam(:, l);
+end
+Swf = Gwf .* Y;
+
+% ---- resynthesis
+ySS = getISTFT(Sss, N, H, w, L);
+yWF = getISTFT(Swf, N, H, w, L);
+assert(all(isfinite(ySS)) && all(isfinite(yWF)), 'Non-finite output.');
+
+% ---- metrics on the speech part
+sig = {noisy, ySS, yWF};
+M = zeros(3, 3);                            % rows: signals, cols: SNR / SegSNR / SI-SDR
+for k = 1:3
+    M(k,1) = 10*log10(sum(clean(sp).^2) / sum((clean(sp) - sig{k}(sp)).^2));
+    M(k,2) = segSNR(clean(sp), sig{k}(sp), N);
+    M(k,3) = siSDR(clean(sp), sig{k}(sp));
+end
+
+fprintf('\nInput SNR = %g dB (%s noise), file: %s\n', snrIn, noiseType, fn);
+fprintf('%-22s %9s %9s %9s\n', '', 'SNR', 'SegSNR', 'SI-SDR');
+names = {'Noisy', 'Spectral subtraction', 'Wiener'};
+for k = 1:3
+    fprintf('%-22s %9.2f %9.2f %9.2f\n', names{k}, M(k,:));
+end
+fprintf('\n');
+
+% ---- save outputs (common gain so levels stay comparable)
+g = 0.9 / max([abs(noisy(sp)); abs(ySS(sp)); abs(yWF(sp))]);
+[~, base] = fileparts(fn);
+outDir = fullfile(fp, 'output');
+if ~exist(outDir, 'dir'), mkdir(outDir); end
+audiowrite(fullfile(outDir, [base '_noisy.wav']),  g*noisy(sp), fs);
+audiowrite(fullfile(outDir, [base '_specsub.wav']), g*ySS(sp),   fs);
+audiowrite(fullfile(outDir, [base '_wiener.wav']),  g*yWF(sp),   fs);
+
+% ---- figures
+cN = [.5 .5 .5];  cC = [0 .45 .74];  cS = [.85 .33 .1];  cW = [.47 .67 .19];
+t = (0:L-1)' / fs;
+
+figure('Name', 'Time domain', 'Color', 'w', 'Position', [50 50 1000 700]);
+tt = {'Clean', 'Noisy', ...
+      sprintf('Spectral subtraction (SNR %.1f dB)', M(2,1)), ...
+      sprintf('Wiener (SNR %.1f dB)', M(3,1))};
+for i = 1:4
+    s4 = {clean, noisy, ySS, yWF};  c4 = {cC, cN, cS, cW};
+    subplot(4,1,i); plot(t, s4{i}, 'Color', c4{i}); grid on;
+    xlim([0 t(end)]); ylim(1.1*max(abs(noisy))*[-1 1]);
+    title(tt{i}); ylabel('Amplitude');
+end
+xlabel('Time (s)');
+
+figure('Name', 'Spectrograms', 'Color', 'w', 'Position', [80 80 1100 700]);
+dB = @(X) 10*log10(abs(X).^2 + eps);
+ref = max(dB(C(:)));
+sp4 = {C, Y, Sss, Swf};  nm4 = {'Clean', 'Noisy', 'Spectral subtraction', 'Wiener'};
+for i = 1:4
+    subplot(2,2,i);
+    imagesc(tAx, fAx/1000, dB(sp4{i})); axis xy;
+    caxis([ref-70 ref]); colormap(jet); colorbar;
+    title(nm4{i}); xlabel('Time (s)'); ylabel('kHz');
+end
+
+[~, fr] = max(sum(abs(C).^2, 1));           % loudest clean frame
+figure('Name', 'Single frame', 'Color', 'w', 'Position', [110 110 1000 520]);
+plot(fAx, 10*log10(Py(:,fr) + eps), 'Color', cN); hold on;
+plot(fAx, 10*log10(Pn + eps), 'k--', 'LineWidth', 1.5);
+plot(fAx, dB(Sss(:,fr)), 'Color', cS, 'LineWidth', 1.3);
+plot(fAx, dB(Swf(:,fr)), 'Color', cW, 'LineWidth', 1.3);
+plot(fAx, dB(C(:,fr)),   'Color', cC);
+grid on; xlabel('Frequency (Hz)'); ylabel('Power (dB)');
+title(sprintf('Frame %d (t = %.2f s)', fr, tAx(fr)));
+legend('Noisy', 'Noise PSD estimate', 'Spectral subtraction', 'Wiener', 'Clean', 'Location', 'best');
+
+figure('Name', 'Gains', 'Color', 'w', 'Position', [140 140 1100 600]);
+subplot(2,2,1);
+sdb = -10:0.5:30;  gg = 10.^(sdb/10);
+plot(sdb, sqrt(max(1 - ssAlpha./gg, ssBeta./gg)), 'Color', cS, 'LineWidth', 2); hold on;
+plot(sdb, gg./(1+gg), 'Color', cW, 'LineWidth', 2); grid on;
+xlabel('SNR (dB)  [a-posteriori: SS, a-priori: Wiener]'); ylabel('Gain');
+title('Gain curves'); legend('Spectral subtraction', 'Wiener', 'Location', 'southeast');
+subplot(2,2,2); plot(fAx, 10*log10(Pn + eps), 'k', 'LineWidth', 1.5); grid on;
+title('Noise PSD estimate'); xlabel('Frequency (Hz)'); ylabel('dB');
+subplot(2,2,3); imagesc(tAx, fAx/1000, Gss); axis xy; colorbar; caxis([0 1]);
+title('Spectral subtraction gain'); xlabel('Time (s)'); ylabel('kHz');
+subplot(2,2,4); imagesc(tAx, fAx/1000, Gwf); axis xy; colorbar; caxis([0 1]);
+title('Wiener gain'); xlabel('Time (s)'); ylabel('kHz');
+
+figure('Name', 'Metrics', 'Color', 'w', 'Position', [170 170 900 450]);
+b = bar(M); grid on;
+set(gca, 'XTickLabel', {'Noisy', 'Spectral sub.', 'Wiener'});
+legend('SNR', 'SegSNR', 'SI-SDR', 'Location', 'northwest'); ylabel('dB');
+title(sprintf('Input SNR = %g dB', snrIn));
+for k = 1:3
+    text(b(k).XEndPoints, b(k).YEndPoints + 0.3, string(round(b(k).YData, 1)), ...
+        'HorizontalAlignment', 'center');
+end
+
+% ---- playback
+drawnow;
+labels = {'clean', 'noisy', 'spectral subtraction', 'Wiener'};
+play   = {clean(sp), g*noisy(sp), g*ySS(sp), g*yWF(sp)};
+play{1} = 0.9 * play{1} / max(abs(play{1}));
+for k = 1:4
+    fprintf('Playing %s...\n', labels{k});
+    playblocking(audioplayer(play{k}, fs));
+    pause(0.5);
+end
+
+% ========================== local functions ==============================
+function [X, nF] = getSTFT(x, N, H, w)
+    nF = floor((numel(x) - N)/H) + 1;
+    X = zeros(N/2+1, nF);
+    for l = 1:nF
+        F = fft(x((l-1)*H + (1:N)) .* w);
+        X(:, l) = F(1:N/2+1);
+    end
+end
+
+function y = getISTFT(X, N, H, w, L)
+    nF = size(X, 2);
+    y  = zeros((nF-1)*H + N, 1);
+    ws = zeros(size(y));
+    for l = 1:nF
+        F = [X(:,l); conj(X(end-1:-1:2, l))];
+        i = (l-1)*H + (1:N);
+        y(i)  = y(i)  + real(ifft(F)) .* w;
+        ws(i) = ws(i) + w.^2;
+    end
+    y = y ./ max(ws, 1e-8);
+    y = y(N+1 : N+L);                       % strip the padding
+end
+
+function s = segSNR(ref, x, N)
+    n = floor(numel(ref)/N);
+    v = zeros(n, 1);  keep = false(n, 1);
+    thr = 1e-4 * N * mean(ref.^2);
+    for k = 1:n
+        i = (k-1)*N + (1:N);
+        e = sum(ref(i).^2);
+        if e > thr
+            v(k) = 10*log10(e / (sum((ref(i) - x(i)).^2) + eps));
+            keep(k) = true;
+        end
+    end
+    s = mean(min(max(v(keep), -10), 35));
+end
+
+function s = siSDR(ref, est)
+    ref = ref(:) - mean(ref);
+    est = est(:) - mean(est);
+    tgt = (ref'*est) / (ref'*ref + eps) * ref;
+    s = 10*log10((sum(tgt.^2) + eps) / (sum((est - tgt).^2) + eps));
+end
