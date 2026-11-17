@@ -46,6 +46,7 @@ fprintf('Speech duration: %.2f s\n', duration);
 rng(1, 'twister');
 
 inputSNRdB = 5;
+inputSNRdB = 0;
 noiseOnlyDuration = 0.5;           % seconds
 noiseSamples = round(noiseOnlyDuration * Fs);
 
@@ -54,6 +55,7 @@ targetNoisePower = speechPower / (10^(inputSNRdB / 10));
 
 % Select 'white' or 'pink-like' noise.
 noiseType = 'white';
+noiseType = 'pink-like';
 
 totalNoiseSamples = N + noiseSamples;
 switch lower(noiseType)

@@ -1,0 +1,27 @@
+Input file: C:\Users\ojasv\speech_enhancement\Matlab_code\input\sample2_mono_22050.wav
+Sampling rate: 22050 Hz
+Speech duration: 14.01 s
+Noise type: white
+Target input SNR: 5.00 dB
+Measured input SNR: 5.00 dB
+Noise-only duration: 0.50 s
+Noise-only frames used: 47
+
+===== RESULTS =====
+Measured input SNR:                5.00 dB
+Noisy speech SI-SDR:                5.00 dB
+Spectral subtraction SI-SDR:       10.37 dB
+Wiener filter SI-SDR:               9.51 dB
+
+Reference-error ratio (not pure residual-noise SNR):
+Noisy speech:                       5.00 dB
+Spectral subtraction:               9.94 dB
+Wiener filter:                      9.84 dB
+
+Audio outputs saved in: C:\Users\ojasv\speech_enhancement\output
+Playing noisy speech...
+Playing spectral subtraction output...
+Playing Wiener filter output...
+
+Baseline experiment completed.
+>> 

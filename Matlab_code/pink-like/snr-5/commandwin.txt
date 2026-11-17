@@ -1,0 +1,28 @@
+Input file: C:\Users\ojasv\speech_enhancement\Matlab_code\input\clean_speech.wav
+Sampling rate: 22050 Hz
+Speech duration: 13.10 s
+Noise type: pink-like
+Target input SNR: 5.00 dB
+Measured input SNR: 5.02 dB
+Noise-only duration: 0.50 s
+Noise-only frames used: 47
+
+===== RESULTS =====
+Measured input SNR:                5.02 dB
+Noisy speech SI-SDR:                4.99 dB
+Spectral subtraction SI-SDR:        7.59 dB
+Wiener filter SI-SDR:               7.98 dB
+
+Reference-error ratio (not pure residual-noise SNR):
+Noisy speech:                       5.02 dB
+Spectral subtraction:               7.46 dB
+Wiener filter:                      8.53 dB
+Applied common gain 0.8820 to prevent clipping.
+
+Audio outputs saved in: C:\Users\ojasv\speech_enhancement\output
+Playing noisy speech...
+Playing spectral subtraction output...
+Playing Wiener filter output...
+
+Baseline experiment completed.
+>> 

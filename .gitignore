@@ -1,0 +1,21 @@
+# MATLAB autosaves and editor backups
+*.asv
+*.m~
+*.mlx~
+*.autosave
+
+# Operating-system and editor clutter
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Generated WAV outputs from running speech_enhancement_v2.m.
+# Keep experiment plots, logs, scripts, and input samples trackable.
+# Remove this rule if you intentionally want to version the generated output WAVs.
+/output/
+
+# Do not ignore the experiment plot folders: they are useful project artifacts.
+# Examples:
+# /Matlab_code/output graphs for sample 1/
+# /Matlab_code/output graphs for sample 2/
+# /Matlab_code/pink-like/
